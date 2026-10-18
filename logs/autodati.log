@@ -1,0 +1,26 @@
+2026-10-18 13:27:02,807 INFO    pipeline 请求模型 fake-vl @ http://127.0.0.1:58090/v1/chat/completions
+2026-10-18 13:27:02,816 INFO    pipeline 模型回答：1 + 1 = ? | 2 | 置信度 0.97
+2026-10-18 13:27:03,422 INFO    pipeline 输入完成，共 1 字符
+2026-10-18 13:27:32,241 INFO    MainThread 截图完成 原始=1920x1080 发送=1568x882 scale=1.224
+2026-10-18 13:28:30,888 INFO    MainThread 截图完成 原始=1920x1080 发送=1568x882 scale=1.224
+2026-10-18 13:28:43,643 INFO    MainThread 已注册热键 CTRL+ALT+Y，中止键 ESC
+2026-10-18 13:30:20,883 INFO    MainThread 已注册热键 CTRL+ALT+Y，中止键 ESC
+2026-10-18 13:31:10,755 INFO    MainThread 已注册热键 CTRL+ALT+Y，中止键 ESC
+2026-10-18 13:31:43,796 INFO    MainThread 已注册热键 CTRL+ALT+Y，中止键 ESC
+2026-10-18 13:31:45,135 INFO    MainThread 截图完成 原始=1920x1080 发送=1920x1080 scale=1.000
+2026-10-18 13:33:09,886 INFO    MainThread 已注册热键 CTRL+ALT+Y，中止键 ESC
+2026-10-18 13:33:11,288 INFO    MainThread 截图完成 原始=1920x1080 发送=1920x1080 scale=1.000
+2026-10-18 13:33:42,930 INFO    MainThread 已注册热键 CTRL+ALT+Y，中止键 ESC
+2026-10-18 13:33:44,286 INFO    MainThread 截图完成 原始=1920x1080 发送=1920x1080 scale=1.000
+2026-10-18 13:34:35,432 INFO    MainThread 已注册热键 CTRL+ALT+Y，中止键 ESC
+2026-10-18 13:34:36,759 INFO    MainThread 截图完成 原始=1920x1080 发送=1920x1080 scale=1.000
+2026-10-18 13:36:32,565 INFO    pipeline 请求模型 fake-vl @ http://127.0.0.1:56344/v1/chat/completions
+2026-10-18 13:36:32,576 INFO    pipeline 模型回答：1 + 1 = ? | 2 | 置信度 0.97
+2026-10-18 13:36:32,987 INFO    pipeline 输入完成，共 1 字符
+2026-10-18 13:36:45,707 INFO    pipeline 请求模型 fake-vl @ http://127.0.0.1:56349/v1/chat/completions
+2026-10-18 13:36:45,717 INFO    pipeline 模型回答：1 + 1 = ? | 2 | 置信度 0.97
+2026-10-18 13:36:46,894 INFO    pipeline 输入完成，共 1 字符
+2026-10-18 13:36:48,845 INFO    MainThread 已注册热键 CTRL+ALT+Y，中止键 ESC
+2026-10-18 13:37:09,474 INFO    pipeline 请求模型 fake-vl @ http://127.0.0.1:56382/v1/chat/completions
+2026-10-18 13:37:09,484 INFO    pipeline 模型回答：1 + 1 = ? | 2 | 置信度 0.97
+2026-10-18 13:37:10,405 INFO    pipeline 输入完成，共 1 字符
