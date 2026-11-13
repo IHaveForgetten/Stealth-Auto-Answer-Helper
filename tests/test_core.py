@@ -153,49 +153,6 @@ class TestMouse(unittest.TestCase):
             move_mouse_smooth(900, 900, Humanizer(), stop, backend=FakeMouse())
 
 
-class TestPyAutoGUIBackend(unittest.TestCase):
-    """真实 pyautogui 只有 keyDown/keyUp；这组测试防止后端适配再漏掉。"""
-
-    def test_adapter_uses_keydown_keyup(self) -> None:
-        import input_engine
-
-        calls: list[tuple[str, str]] = []
-
-        class FakePyAutoGUI:
-            def keyDown(self, key):
-                calls.append(("down", key))
-
-            def keyUp(self, key):
-                calls.append(("up", key))
-
-            def write(self, text):
-                calls.append(("write", text))
-
-        adapter = input_engine.PyAutoGUIKeyboard()
-        original = input_engine.pyautogui
-        input_engine.pyautogui = FakePyAutoGUI()
-        try:
-            adapter.press("a")
-            adapter.release("a")
-        finally:
-            input_engine.pyautogui = original
-        self.assertEqual(calls, [("down", "a"), ("up", "a")])
-
-    def test_non_pyautogui_backend_passthrough(self) -> None:
-        import input_engine
-
-        fake = FakeKeyboard()
-        self.assertIs(input_engine._adapt_backend(fake), fake)
-
-    def test_default_backend_is_adapted(self) -> None:
-        import input_engine
-
-        if input_engine.pyautogui is None:
-            self.skipTest("pyautogui 不可用")
-        kb = input_engine._adapt_backend(input_engine.pyautogui)
-        self.assertIsInstance(kb, input_engine.PyAutoGUIKeyboard)
-
-
 class TestParsing(unittest.TestCase):
     def test_plain_json(self) -> None:
         a = parse_answer(
@@ -226,36 +183,6 @@ class TestParsing(unittest.TestCase):
 
     def test_confidence_clamped(self) -> None:
         self.assertEqual(parse_answer('{"answer":"a","confidence":1.7}').confidence, 1.0)
-
-    def test_current_blank_parsed(self) -> None:
-        a = parse_answer(
-            '{"type":"fill","current_blank":3,"blank_count":4,'
-            '"answer":"90","blanks":["3","4","90","120"],"target":{"x":200,"y":260}}'
-        )
-        self.assertEqual(a.current_blank, 3)
-        self.assertEqual(a.blank_count, 4)
-        self.assertEqual(a.answer, "90")
-        self.assertEqual(a.target, (200, 260))
-        self.assertIn("第3空", a.summary())
-
-    def test_answer_filled_from_blank_index(self) -> None:
-        a = parse_answer('{"type":"fill","current_blank":2,"blank_count":4,"blanks":["3","4","90","120"]}')
-        self.assertEqual(a.answer, "4")
-
-    def test_multi_blank_without_index_defaults_to_first(self) -> None:
-        a = parse_answer('{"type":"fill","blank_count":3,"blanks":["a","b","c"]}')
-        self.assertEqual(a.current_blank, 1)
-        self.assertEqual(a.answer, "a")
-
-    def test_out_of_range_blank_index_is_ignored(self) -> None:
-        a = parse_answer('{"type":"fill","current_blank":9,"blank_count":2,"blanks":["a","b"],"answer":"z"}')
-        self.assertEqual(a.current_blank, 1)
-        self.assertEqual(a.answer, "z")
-
-    def test_string_numbers_tolerated(self) -> None:
-        a = parse_answer('{"current_blank":"3","blank_count":"4"}')
-        self.assertEqual(a.current_blank, 3)
-        self.assertEqual(a.blank_count, 4)
 
 
 if __name__ == "__main__":

@@ -26,30 +26,9 @@ except Exception:  # pragma: no cover - 仅在无 GUI 环境下
 
 
 class _KeyboardBackend(Protocol):
-    """键盘后端协议。pyautogui 用 press/release，真实后端用 keyDown/keyUp。"""
     def press(self, key: str) -> None: ...
     def release(self, key: str) -> None: ...
     def write(self, text: str) -> None: ...
-
-
-class PyAutoGUIKeyboard:
-    """把 pyautogui 适配到后端协议：它只有 keyDown/keyUp，没有 press/release。"""
-
-    def press(self, key: str) -> None:
-        pyautogui.keyDown(key)
-
-    def release(self, key: str) -> None:
-        pyautogui.keyUp(key)
-
-    def write(self, text: str) -> None:
-        pyautogui.write(text)
-
-
-def _adapt_backend(kb):
-    """传入 pyautogui 模块本身时自动适配，其他后端原样使用。"""
-    if kb is pyautogui:
-        return PyAutoGUIKeyboard()
-    return kb
 
 
 class Interrupted(Exception):
@@ -82,7 +61,7 @@ def type_text(
     on_action: Callable[[str], None] | None = None,
 ) -> None:
     """按拟人节奏逐字符输入。中文等非 ASCII 字符走剪贴板兜底。"""
-    kb = _adapt_backend(backend or pyautogui)
+    kb = backend or pyautogui
     if kb is None:
         raise RuntimeError("没有可用的键盘后端")
 

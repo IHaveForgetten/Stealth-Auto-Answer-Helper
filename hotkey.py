@@ -1,4 +1,4 @@
-"""全局热键：Ctrl+Alt+Y 截屏取答案，Ctrl+Alt+H 输入一个答案，Esc 中止。"""
+"""全局热键 Ctrl+Alt+Y 与 Esc 中止，基于 keyboard 钩子。"""
 
 from __future__ import annotations
 
@@ -11,40 +11,22 @@ from logging_setup import get_logger
 
 log = get_logger()
 
-SCAN_HOTKEY = "ctrl+alt+y"
-TYPE_HOTKEY = "ctrl+alt+h"
+MAIN_HOTKEY = "ctrl+alt+y"
 ABORT_HOTKEY = "esc"
-
-# 兼容旧名字：截屏热键
-MAIN_HOTKEY = SCAN_HOTKEY
-
-
-def pretty(hotkey: str) -> str:
-    return hotkey.upper().replace("+", " + ")
 
 
 class HotkeyManager:
     def __init__(self) -> None:
         self._handles: list = []
 
-    def register(
-        self,
-        on_scan: Callable[[], None],
-        on_type: Callable[[], None],
-        on_abort: Callable[[], None],
-    ) -> None:
-        for hotkey, fn in (
-            (SCAN_HOTKEY, on_scan),
-            (TYPE_HOTKEY, on_type),
-            (ABORT_HOTKEY, on_abort),
-        ):
-            self._handles.append(
-                keyboard.add_hotkey(hotkey, lambda f=fn: self._safe(f), suppress=False)
-            )
-        log.info(
-            "已注册热键：%s 取答案，%s 输入答案，%s 中止",
-            pretty(SCAN_HOTKEY), pretty(TYPE_HOTKEY), pretty(ABORT_HOTKEY),
+    def register(self, on_trigger: Callable[[], None], on_abort: Callable[[], None]) -> None:
+        self._handles.append(
+            keyboard.add_hotkey(MAIN_HOTKEY, lambda: self._safe(on_trigger), suppress=False)
         )
+        self._handles.append(
+            keyboard.add_hotkey(ABORT_HOTKEY, lambda: self._safe(on_abort), suppress=False)
+        )
+        log.info("已注册热键 %s，中止键 %s", MAIN_HOTKEY.upper(), ABORT_HOTKEY.upper())
 
     @staticmethod
     def _safe(fn: Callable[[], None]) -> None:
