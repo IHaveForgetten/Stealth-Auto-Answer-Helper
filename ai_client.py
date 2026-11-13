@@ -22,19 +22,27 @@ SYSTEM_PROMPT = """你是屏幕答题助手。用户会给你一张电脑屏幕�
 
 任务：
 1. 识别截图中的题目。如果有多道题，只回答最显眼/最当前的一道；如果确实无法判断是哪道，回答 first_visible。
-2. 给出正确答案。
+2. 给出正确答案。答案要能直接填进答题框，不要带"答案是""第3空"这类前缀。
 3. 如果题目有选项（A/B/C/D 或按钮式选项），给出正确选项的字母和内容，并估算该选项在截图中的像素坐标。
+4. 如果题目有多个空（例如 ①②③④、____、____、____、____，或页面上有"第1空/第2空…"多个输入框），必须把每个空的答案分开放在 blanks 数组里，按页面上从上到下、从左到右的顺序排列。绝对不要把多个空的答案用逗号、顿号或空格合并成一个字符串。
+   - 例：四个空分别填 3、4、90、120，则 blanks 为 ["3","4","90","120"]，而不是 "3,4,90,120"。
+   - blank_count 必须等于 blanks 的长度，也等于页面上输入框的个数。
 
 输出要求：只输出一个 JSON 对象，不要 markdown 代码块，不要任何解释文字。格式：
-{"type": "text" | "choice" | "unknown",
+{"type": "text" | "choice" | "fill" | "unknown",
  "question": "识别到的题目原文（可截断）",
- "answer": "要输入到答题框里的答案。只写答案本身，不要写“答案是”这类前缀",
+ "blank_count": 1,
+ "answer": "单空题/简答题的答案；多空题时填 blanks 的第一项",
+ "blanks": ["第1空的答案", "第2空的答案"] | null,
  "choice": {"label": "B", "text": "选项内容"} | null,
  "target": {"x": 123, "y": 456} | null,
  "confidence": 0.0 ~ 1.0}
 
-坐标说明：x、y 是相对这张截图左上角的像素坐标，原点 (0,0) 在左上角，x 向右、y 向下。指向选项文本行的中心。
-不确定答案时 type 用 unknown、answer 留空、confidence 给低值。"""
+说明：
+- 填空/多空题 type 用 fill；纯文字简答 type 用 text；选择题 type 用 choice。
+- 单个空时 blanks 可省略或为 null，answer 即该空内容。
+- target 只对选择题有意义：指向要选的那个选项文本行的中心（截图坐标，原点在左上角）。填空题不需要给 target。
+- 不确定答案时 type 用 unknown、answer 留空、confidence 给低值。"""
 
 USER_PROMPT_DEFAULT = "请解答截图中的题目。"
 
@@ -47,20 +55,61 @@ class Answer:
     choice_label: str | None = None
     choice_text: str | None = None
     target: tuple[int, int] | None = None
+    blanks: list[str] = field(default_factory=list)
+    """多空题：按页面顺序的全部空答案，仅用于展示与核对。"""
+    current_blank: int | None = None
+    """当前已聚焦的输入框是第几个空（从 1 开始）；单空题为 1。"""
+    blank_count: int = 0
+    """页面上空的总数。"""
     confidence: float = 0.0
     raw: str = ""
     extras: dict = field(default_factory=dict)
+
+    @property
+    def is_multi_blank(self) -> bool:
+        return len(self.blanks) > 1
+
+    def answers_in_order(self) -> list[str]:
+        """本次要依次输入的内容：多空题按空位顺序返回，其它情况只有一项。"""
+        if self.is_multi_blank:
+            return [b for b in self.blanks if b.strip()]
+        return [self.answer] if self.answer.strip() else []
+
+    def next_answer(self) -> str:
+        """取当前该输入的那一项；多空题按顺序逐个消费。"""
+        if self.is_multi_blank:
+            if self.current_blank is not None and 1 <= self.current_blank <= len(self.blanks):
+                return self.blanks[self.current_blank - 1]
+            return self.blanks[0]
+        return self.answer
+
+    def advance_blank(self) -> None:
+        """把 current_blank 推进到下一个尚未填写的空。"""
+        if not self.is_multi_blank:
+            return
+        cur = self.current_blank or 1
+        self.current_blank = min(cur + 1, len(self.blanks))
+
+    def mark_filled(self, index: int) -> None:
+        """记录第 index 个空已经填过，避免重复输入。"""
+        self.extras.setdefault("filled", [])
+        if index not in self.extras["filled"]:
+            self.extras["filled"].append(index)
 
     def summary(self) -> str:
         parts = []
         if self.question:
             q = self.question.replace("\n", " ")
-            parts.append(q[:60] + ("…" if len(q) > 60 else ""))
+            parts.append(q[:50] + ("…" if len(q) > 50 else ""))
         if self.choice_label:
             parts.append(f"选项 {self.choice_label}")
-        detail = (self.answer or "").replace("\n", " ")
-        if detail:
-            parts.append(detail[:80] + ("…" if len(detail) > 80 else ""))
+        if self.blank_count > 1 or self.is_multi_blank:
+            idx = f"第{self.current_blank}空" if self.current_blank else "当前空未知"
+            parts.append(f"{idx}：{(self.answer or '')[:40]}")
+        else:
+            detail = (self.answer or "").replace("\n", " ")
+            if detail:
+                parts.append(detail[:80] + ("…" if len(detail) > 80 else ""))
         parts.append(f"置信度 {self.confidence:.2f}")
         return " | ".join(parts) if parts else "（无内容）"
 
@@ -202,6 +251,15 @@ def _as_float(value, default: float = 0.0) -> float:
     return max(0.0, min(1.0, f))
 
 
+def _as_int(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _clean_answer(text: str) -> str:
     if not isinstance(text, str):
         text = str(text)
@@ -228,6 +286,26 @@ def parse_answer(content: str) -> Answer:
     ans.question = str(obj.get("question") or "")
     ans.answer = _clean_answer(obj.get("answer") or "")
     ans.confidence = _as_float(obj.get("confidence"))
+
+    blanks = obj.get("blanks")
+    if isinstance(blanks, list):
+        ans.blanks = [_clean_answer(b) for b in blanks if b not in (None, "")]
+    ans.blank_count = _as_int(obj.get("blank_count")) or len(ans.blanks)
+    ans.current_blank = _as_int(obj.get("current_blank"))
+
+    # 模型有时只给 blanks 不给 current_blank：多空题就退回到第一个空
+    if ans.current_blank is None and ans.blank_count > 1:
+        log.warning("多空题但未给出 current_blank，按第 1 空处理")
+        ans.current_blank = 1
+    if ans.current_blank is not None and not (1 <= ans.current_blank <= max(1, ans.blank_count)):
+        log.warning("current_blank=%s 越界（共 %s 空），已忽略", ans.current_blank, ans.blank_count)
+        ans.current_blank = 1
+
+    # answer 缺省时，用对应空位的答案补齐
+    if not ans.answer and ans.blanks:
+        idx = (ans.current_blank or 1) - 1
+        if 0 <= idx < len(ans.blanks):
+            ans.answer = ans.blanks[idx]
 
     choice = obj.get("choice")
     if isinstance(choice, dict):

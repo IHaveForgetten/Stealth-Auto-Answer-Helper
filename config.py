@@ -33,6 +33,10 @@ class Config:
     speed: str = "normal"
     typo_rate: float = 0.06
     move_mouse: bool = True
+    click_target: bool = True
+    """填空/文本题：把鼠标移到当前输入框并点击，确保光标落在正确的空里。"""
+    clear_before_typing: bool = True
+    """点击聚焦后先 Ctrl+A + Delete 清空该空已有内容，再输入新答案。"""
     start_delay_min: float = 0.5
     start_delay_max: float = 1.4
     request_timeout: int = 90

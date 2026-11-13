@@ -15,7 +15,7 @@ import requests
 import storage
 from ai_client import parse_answer
 from config import SPEED_PRESETS, Config, save_config
-from hotkey import HotkeyManager, MAIN_HOTKEY
+from hotkey import HotkeyManager, SCAN_HOTKEY, TYPE_HOTKEY, pretty
 from logging_setup import get_logger, log_dir
 from pipeline import Pipeline
 from prompts import TEMPLATES, DEFAULT_TEMPLATE
@@ -49,15 +49,17 @@ class App:
             "speed": tk.StringVar(value=cfg.speed),
             "typo_rate": tk.DoubleVar(value=cfg.typo_rate * 100),
             "move_mouse": tk.BooleanVar(value=cfg.move_mouse),
+            "click_target": tk.BooleanVar(value=cfg.click_target),
+            "clear_before_typing": tk.BooleanVar(value=cfg.clear_before_typing),
             "prompt_template": tk.StringVar(value=cfg.prompt_template),
             "custom_prompt": tk.StringVar(value=cfg.custom_prompt),
             "start_delay": tk.StringVar(
-                value=f"{cfg.start_delay_min:g}–{cfg.start_delay_max:g}"
+                value=f"{cfg.start_delay_min:g}-{cfg.start_delay_max:g}"
             ),
         }
 
         self._build()
-        self.hotkeys.register(self.trigger, self.abort)
+        self.hotkeys.register(self.scan, self.type_next, self.abort)
         self._poll_status()
         self.root.after(300, self._check_admin)
 
@@ -108,7 +110,7 @@ class App:
         ).grid(row=r, column=0, sticky="w")
         r += 1
 
-        ttk.Label(api, text="自定义提示词（仅当模板选“自定义”时生效）").grid(
+        ttk.Label(api, text="自定义提示词（仅当模板选「自定义」时生效）").grid(
             row=r, column=0, sticky="w", pady=(10, 2)
         )
         r += 1
@@ -145,9 +147,15 @@ class App:
 
         r += 1
         ttk.Checkbutton(
-            beh, text="选择题：将鼠标平滑移动到选项上方（不点击）",
+            beh, text="选择题：把鼠标平滑移到选项上方（不点击）",
             variable=self.vars["move_mouse"],
         ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(10, 0))
+
+        r += 1
+        ttk.Checkbutton(
+            beh, text="输入前清空当前空（Ctrl+A + Delete），避免新旧答案连在一起",
+            variable=self.vars["clear_before_typing"],
+        ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         r += 1
         ttk.Label(beh, text="开始前停顿（秒）").grid(row=r, column=0, sticky="w", pady=(10, 0))
@@ -157,10 +165,10 @@ class App:
 
         r += 1
         note = (
-            "行为约定：截屏后只做两件事——把鼠标平滑移到选项上（由你点击），"
-            "或把答案逐字符输入到当前光标处。\n"
-            "软件不会点击、不会按回车、不会切换窗口。\n\n"
-            f"触发：{MAIN_HOTKEY.upper().replace('+', ' + ')}　中止：Esc 或把鼠标甩到左上角"
+            f"{pretty(SCAN_HOTKEY)}：截屏并获取答案（会丢弃上一轮未输入完的剩余答案）\n"
+            f"{pretty(TYPE_HOTKEY)}：把下一个答案输入到当前光标处，一次只输入一项\n"
+            "多空题：填完一个空后，你自己点到下一个空，再按一次输入热键。\n"
+            "中止：Esc 或把鼠标甩到左上角。软件不会按回车、不会切换窗口。"
         )
         ttk.Label(beh, text=note, justify="left", foreground="#444", wraplength=470).grid(
             row=r + 1, column=0, columnspan=2, sticky="w", pady=(16, 0)
@@ -170,10 +178,16 @@ class App:
         # ---- 底部
         bottom = ttk.Frame(self.root, padding=(PAD, PAD))
         bottom.pack(fill="both", expand=False)
-        self.run_btn = ttk.Button(bottom, text="立即答题（一次）", command=self.trigger)
-        self.run_btn.pack(side="left")
-        ttk.Button(bottom, text="中止", command=self.abort).pack(side="left", padx=6)
-        ttk.Button(bottom, text="历史记录", command=self._show_history).pack(side="left")
+        self.scan_btn = ttk.Button(
+            bottom, text=f"取答案 {pretty(SCAN_HOTKEY)}", command=self.scan
+        )
+        self.scan_btn.pack(side="left")
+        self.type_btn = ttk.Button(
+            bottom, text=f"输入一项 {pretty(TYPE_HOTKEY)}", command=self.type_next
+        )
+        self.type_btn.pack(side="left", padx=6)
+        ttk.Button(bottom, text="中止", command=self.abort).pack(side="left")
+        ttk.Button(bottom, text="历史记录", command=self._show_history).pack(side="left", padx=6)
 
         self.status = ttk.Label(self.root, text="就绪", relief="sunken", anchor="w", padding=(6, 4))
         self.status.pack(fill="x", side="bottom")
@@ -209,6 +223,8 @@ class App:
             speed=self.vars["speed"].get(),
             typo_rate=self.vars["typo_rate"].get() / 100.0,
             move_mouse=self.vars["move_mouse"].get(),
+            click_target=self.vars["click_target"].get(),
+            clear_before_typing=self.vars["clear_before_typing"].get(),
             start_delay_min=start_min,
             start_delay_max=max(start_min, start_max),
         )
@@ -233,7 +249,8 @@ class App:
 
     # ------------------------------------------------------------ 动作
 
-    def trigger(self) -> None:
+    def scan(self) -> None:
+        """Ctrl+Alt+Y：截屏并取回答案，丢弃上一轮尚未输入的剩项。"""
         if self.save(quiet=True) is False:
             return
         if not self.cfg.api_key:
@@ -243,15 +260,25 @@ class App:
         if self.pipeline.running:
             self._set_status("上一次还没结束，按 Esc 可中止")
             return
-        self._set_status("开始…")
-        threading.Thread(target=self._delayed_start, daemon=True).start()
+        self._set_status("开始截屏…")
+        threading.Thread(target=self._delayed_scan, daemon=True).start()
 
-    def _delayed_start(self) -> None:
+    def type_next(self) -> None:
+        """Ctrl+Alt+H：把当前答案输入到光标处，一次只输入一项。"""
+        if self.pipeline.running:
+            self._set_status("上一次还没结束，按 Esc 可中止")
+            return
+        if not self.pipeline.has_pending():
+            self._set_status(f"没有待输入的答案，请先按 {pretty(SCAN_HOTKEY)} 截图取答案")
+            return
+        self.pipeline.start_type()
+
+    def _delayed_scan(self) -> None:
         import time
 
         delay = self.cfg.start_delay_min + (self.cfg.start_delay_max - self.cfg.start_delay_min) * 0.5
         time.sleep(max(0.0, delay))
-        if not self.pipeline.start_async():
+        if not self.pipeline.start_scan():
             self._set_status("已在运行中")
 
     def abort(self) -> None:
@@ -329,7 +356,11 @@ class App:
             self._busy_tick = 12  # 约 1.8s 的宽限，避免流程刚启动时按钮又亮起
         elif self._busy_tick > 0:
             self._busy_tick -= 1
-        self.run_btn.configure(state="disabled" if self._busy_tick > 0 else "normal")
+        busy = self._busy_tick > 0
+        self.scan_btn.configure(state="disabled" if busy else "normal")
+        self.type_btn.configure(
+            state="normal" if not busy and self.pipeline.has_pending() else "disabled"
+        )
         self.root.after(150, self._poll_status)
 
     def _check_admin(self) -> None:
@@ -360,7 +391,8 @@ class App:
             d.ellipse((14, 14, 50, 50), fill="white")
             menu = pystray.Menu(
                 pystray.MenuItem("显示窗口", lambda: self.root.after(0, self._restore), default=True),
-                pystray.MenuItem("立即答题", lambda: self.trigger()),
+                pystray.MenuItem("截屏取答案", lambda: self.scan()),
+                pystray.MenuItem("输入下一个答案", lambda: self.type_next()),
                 pystray.MenuItem("退出", lambda: self.root.after(0, self._on_close)),
             )
             self._tray = pystray.Icon("autodati", img, APP_TITLE, menu)
